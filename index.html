@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مدقق تصاميم المباريات</title>
+<style>
+@font-face{font-family:Arb;src:url("ArbFONTS-ArabicUIDisplayBlack.otf")}
+:root{--bg:#0f0f12;--card:#1a1a20;--line:#2c2c35;--fg:#eee;--mut:#999;--ok:#1fa463;--bad:#e0453a;--acc:#f2c230}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Tahoma,sans-serif;padding:16px}
+h1{font-family:Arb,sans-serif;color:var(--acc);margin:0 0 4px}
+.wrap{max-width:1300px;margin:auto}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+label{display:block;margin:8px 0 4px;color:var(--mut)}
+input[type=password],select{width:100%;padding:8px;background:#000;color:var(--fg);border:1px solid var(--line);border-radius:8px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:20px;text-align:center;cursor:pointer}
+.drop:hover{border-color:var(--acc)}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.thumbs img{height:90px;border-radius:6px;border:1px solid var(--line)}
+button{background:var(--acc);color:#000;border:0;padding:12px 28px;border-radius:10px;font-size:18px;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.cols{grid-template-columns:1fr}}
+.col h2{margin:0 0 8px;font-family:Arb,sans-serif}
+.ok h2{color:var(--ok)}.bad h2{color:var(--bad)}
+.res{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px;border-inline-start:5px solid}
+.ok .res{border-color:var(--ok)}.bad .res{border-color:var(--bad)}
+.res img{width:100%;max-height:420px;object-fit:contain;background:#000;border-radius:8px;cursor:zoom-in}
+.res ul{padding-inline-start:18px;margin:8px 0}
+.res li{margin:4px 0}
+.err b{color:var(--bad)}.good{color:var(--ok)}
+.status{color:var(--mut);margin:8px 0;min-height:1.2em}
+small{color:var(--mut)}
+</style>
+</head>
+<body><div class="wrap">
+<h1>مدقق تصاميم المباريات</h1>
+<small>ارفع صورة المرجع (الصحيحة) ثم الصور اللي بدك تتأكد منها. الموقع يقرأ الأسماء والأوقات والقنوات والمعلقين ويقارنها مع المرجع.</small>
+
+<div class="box">
+  <label>مفتاح API (يُحفظ في متصفحك فقط) — مفتاح Gemini مجاني من <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--acc)">aistudio.google.com/apikey</a></label>
+  <input type="password" id="key" placeholder="AIza... أو sk-ant-...">
+  <label>الموديل</label>
+  <select id="model">
+    <option value="gemini-3.8-flash">Gemini 3.8 Flash (مجاني)</option>
+    <option value="gemini-flash-latest">Gemini Flash Latest (مجاني)</option>
+    <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (أدق، حدود أقل)</option>
+    <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (مدفوع)</option>
+    <option value="claude-opus-5-5">Claude Opus 5.5 (مدفوع، أدق)</option>
+  </select>
+</div>
+
+<div class="cols">
+  <div class="box"><b>١) صورة المرجع</b>
+    <div class="drop" id="refDrop">اضغط أو اسحب صورة المرجع هنا</div>
+    <input type="file" id="refIn" accept="image/*" hidden>
+    <div class="thumbs" id="refThumb"></div>
+  </div>
+  <div class="box"><b>٢) الصور للفحص (حتى 9 أو أكثر)</b>
+    <div class="drop" id="candDrop">اضغط أو اسحب الصور هنا</div>
+    <input type="file" id="candIn" accept="image/*" multiple hidden>
+    <div class="thumbs" id="candThumb"></div>
+  </div>
+</div>
+
+<div style="text-align:center"><button id="go">ابدأ المقارنة</button>
+<div class="status" id="status"></div></div>
+
+<div class="cols" id="results" hidden>
+  <div class="col ok"><h2>✔ صحيحة 100%</h2><div id="okList"></div></div>
+  <div class="col bad"><h2>✘ فيها أخطاء</h2><div id="badList"></div></div>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let refFile=null, candFiles=[];
+try{$('key').value=localStorage.getItem('akey')||'';$('model').value=localStorage.getItem('amodel')||'gemini-3.8-flash'}catch(e){}
+
+function setupDrop(drop,input,multi,onFiles){
+  drop.onclick=()=>input.click();
+  input.onchange=()=>onFiles([...input.files]);
+  drop.ondragover=e=>{e.preventDefault()};
+  drop.ondrop=e=>{e.preventDefault();onFiles([...e.dataTransfer.files].filter(f=>f.type.startsWith('image/')))};
+}
+function thumbs(el,files){el.innerHTML='';files.forEach(f=>{const i=new Image();i.src=URL.createObjectURL(f);i.title=f.name;el.appendChild(i)})}
+setupDrop($('refDrop'),$('refIn'),false,fs=>{refFile=fs[0];thumbs($('refThumb'),[refFile])});
+setupDrop($('candDrop'),$('candIn'),true,fs=>{candFiles=candFiles.concat(fs);thumbs($('candThumb'),candFiles)});
+
+// تصغير الصورة وتحويلها base64 jpeg
+function toB64(file){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>{
+  const max=1800,s=Math.min(1,max/Math.max(img.width,img.height));
+  const c=document.createElement('canvas');c.width=img.width*s;c.height=img.height*s;
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+  res(c.toDataURL('image/jpeg',0.92).split(',')[1])};img.onerror=rej;img.src=URL.createObjectURL(file)})}
+
+const PROMPT=`أنت أداة OCR دقيقة جداً. استخرج كل البيانات المكتوبة في صورة جدول/بطاقة المباريات.
+مهم جداً: انسخ النص حرفياً كما هو مكتوب في الصورة بالضبط، حتى لو فيه خطأ إملائي أو حرف ناقص أو زائد. لا تصحح أي شيء ولا تكمل أسماء من معرفتك.
+أرجع JSON فقط بدون أي نص آخر بهذا الشكل:
+{"date":"التاريخ كما هو مكتوب","sections":[{"title":"عنوان القسم كما هو","matches":[{"home":"الفريق على اليمين","away":"الفريق على اليسار","time":"الوقت كما هو مثل 09:45PM","channel":"القناة مثل beIN SPORTS 1 أو ON أو الرياضية","commentator":"اسم المعلق كما هو","stadium":"الملعب إن وجد وإلا فارغ"}]}]}
+إذا كانت بطاقة لمباراة واحدة ضعها في قسم واحد بعنوان البطولة. اترك أي حقل غير موجود فارغاً "".`;
+
+function parseJSON(t){return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1))}
+async function extract(file){
+  const data=await toB64(file),model=$('model').value,key=$('key').value.trim();
+  if(model.startsWith('gemini')){
+    // إذا الموديل مشغول أو خلص حدّه، جرّب موديل مجاني تاني فوراً بدل الانتظار
+    const models=[model,...['gemini-3.8-flash','gemini-flash-latest','gemini-3.5-flash'].filter(m=>m!==model)];
+    for(let tries=0;;tries++){
+      const m=models[tries%models.length];
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(key)}`,{
+        method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data}},{text:PROMPT}]}],
+          generationConfig:{temperature:0,responseMimeType:'application/json'}})});
+      const j=await r.json();
+      if((r.status===429||r.status===503)&&tries<9){
+        $('status').textContent=`${m} مشغول، عم جرّب موديل تاني...`;
+        if(tries%models.length===models.length-1)await new Promise(z=>setTimeout(z,10000)); // كلهم مشغولين: استنى شوي
+        continue}
+      if(!r.ok) throw new Error(j.error?.message||r.status);
+      return parseJSON(j.candidates[0].content.parts.map(p=>p.text||'').join(''));
+    }
+  }
+  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{
+    'content-type':'application/json','x-api-key':key,
+    'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model,max_tokens:4000,messages:[{role:'user',content:[
+      {type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:PROMPT}]}]})});
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error?.message||r.status);
+  return parseJSON(j.content.map(c=>c.text||'').join(''));
+}
+
+// توحيد الكتابة: الأشكال المختلفة لنفس الحرف ما تعتبر خطأ
+function norm(s){return String(s||'')
+  .replace(/ﷲ/g,'الله').replace(/ﷴ/g,'محمد')
+  .replace(/[ً-ٰٟـ]/g,'')   // تشكيل وتطويل
+  .replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
+  .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+  .replace(/[\s\-–:|_.]+/g,' ').trim().toLowerCase()}
+function normTime(s){const m=String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).match(/(\d{1,2})\s*[:.]\s*(\d{2})/);return m?(+m[1])+':'+m[2]:norm(s)}
+function normChan(s){const n=norm(s).replace(/bein|sports|بي ان|سبورت|سبورتس|\s/g,'');return n}
+// نفس القناة حتى لو انقرأ رقمها مرة وما انقرأ مرة (مثل الرياضية / الرياضية 3)
+function sameChan(a,b){a=normChan(a);b=normChan(b);if(a===b)return true;const t=x=>x.replace(/\d/g,''),da=a.replace(/\D/g,''),db=b.replace(/\D/g,'');return t(a)===t(b)&&(!da||!db)}
+function normDate(s){return norm(s).replace(/\s/g,'')}
+
+function compare(ref,cand){
+  const errs=[];
+  if(ref.date&&cand.date&&normDate(ref.date)!==normDate(cand.date))
+    errs.push(`التاريخ: مكتوب <b>${cand.date}</b> والصحيح <span class="good">${ref.date}</span>`);
+  const refMatches=[];ref.sections.forEach(s=>s.matches.forEach(m=>refMatches.push({...m,section:s.title})));
+  const candMatches=[];(cand.sections||[]).forEach(s=>(s.matches||[]).forEach(m=>candMatches.push({...m,section:s.title})));
+  const used=new Set();
+  const sim=(a,b)=>{a=norm(a);b=norm(b);if(a===b)return 2;if(!a||!b)return 0;return (a.includes(b)||b.includes(a)||lev(a,b)<=2)?1:0};
+  candMatches.forEach(cm=>{
+    // ابحث عن نفس المباراة بالمرجع
+    let best=null,score=0;
+    refMatches.forEach((rm,i)=>{const sc=Math.max(sim(rm.home,cm.home)+sim(rm.away,cm.away),sim(rm.home,cm.away)+sim(rm.away,cm.home));if(sc>score){score=sc;best=i}});
+    const label=`${cm.home} × ${cm.away}`;
+    if(best===null||score<2){errs.push(`مباراة <b>${label}</b> غير موجودة في المرجع`);return}
+    used.add(best);const rm=refMatches[best];const e=[];
+    const swapped=sim(rm.home,cm.away)+sim(rm.away,cm.home)>sim(rm.home,cm.home)+sim(rm.away,cm.away);
+    const [rh,ra]=swapped?[rm.away,rm.home]:[rm.home,rm.away];
+    if(swapped)e.push(`ترتيب الفريقين معكوس (الصحيح ${rm.home} على اليمين)`);
+    if(norm(cm.home)!==norm(rh))e.push(`اسم الفريق: <b>${cm.home}</b> والصحيح <span class="good">${rh}</span>`);
+    if(norm(cm.away)!==norm(ra))e.push(`اسم الفريق: <b>${cm.away}</b> والصحيح <span class="good">${ra}</span>`);
+    if(cm.time&&normTime(cm.time)!==normTime(rm.time))e.push(`الوقت: <b>${cm.time}</b> والصحيح <span class="good">${rm.time}</span>`);
+    if(cm.channel&&rm.channel&&!sameChan(cm.channel,rm.channel))e.push(`القناة: <b>${cm.channel}</b> والصحيحة <span class="good">${rm.channel}</span>`);
+    if(cm.commentator&&norm(cm.commentator)!==norm(rm.commentator))e.push(`المعلق: <b>${cm.commentator}</b> والصحيح <span class="good">${rm.commentator}</span>`);
+    if(!cm.commentator&&rm.commentator)e.push(`اسم المعلق ناقص (الصحيح <span class="good">${rm.commentator}</span>)`);
+    if(rm.section&&cm.section&&candMatches.length>1&&norm(cm.section)!==norm(rm.section))
+      e.push(`عنوان القسم: <b>${cm.section}</b> والصحيح <span class="good">${rm.section}</span>`);
+    e.forEach(x=>errs.push(`<u>${rm.section||''} — ${rm.home} × ${rm.away}</u>: ${x}`));
+  });
+  // إذا الصورة جدول كامل، لازم تحتوي كل المباريات
+  if(candMatches.length>1) refMatches.forEach((rm,i)=>{if(!used.has(i))errs.push(`مباراة ناقصة: <b>${rm.home} × ${rm.away}</b> (${rm.section})`)});
+  if(!candMatches.length)errs.push('ما قدرت أقرأ أي مباراة من الصورة');
+  return errs;
+}
+function lev(a,b){const d=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]}
+
+function card(file,errs){
+  const d=document.createElement('div');d.className='res';
+  const img=new Image();img.src=URL.createObjectURL(file);img.onclick=()=>window.open(img.src);
+  d.innerHTML=`<b>${file.name}</b>`;d.prepend(img);
+  const ul=document.createElement('ul');ul.className='err';
+  ul.innerHTML=errs.length?errs.map(e=>`<li>${e}</li>`).join(''):'<li class="good">كل البيانات مطابقة للمرجع ✔</li>';
+  d.appendChild(ul);return d;
+}
+
+$('go').onclick=async()=>{
+  if(!$('key').value.trim())return alert('أدخل مفتاح API');
+  if(!refFile)return alert('ارفع صورة المرجع');
+  if(!candFiles.length)return alert('ارفع الصور للفحص');
+  try{localStorage.setItem('akey',$('key').value.trim());localStorage.setItem('amodel',$('model').value)}catch(e){}
+  $('go').disabled=true;$('okList').innerHTML=$('badList').innerHTML='';$('results').hidden=false;
+  try{
+    $('status').textContent='جاري قراءة صورة المرجع...';
+    const ref=await extract(refFile);
+    let done=0;$('status').textContent=`جاري فحص ${candFiles.length} صور...`;
+    const one=async f=>{
+      let errs;
+      try{errs=compare(ref,await extract(f))}catch(e){errs=['خطأ في القراءة: '+e.message]}
+      (errs.length?$('badList'):$('okList')).appendChild(card(f,errs));
+      $('status').textContent=`تم فحص ${++done} من ${candFiles.length}`;
+    };
+    if($('model').value.startsWith('gemini')){for(const f of candFiles)await one(f)}
+    else await Promise.all(candFiles.map(one));
+    $('status').textContent='✔ انتهى الفحص';
+  }catch(e){$('status').textContent='خطأ: '+e.message}
+  $('go').disabled=false;
+};
+</script>
+</body>
+</html>
