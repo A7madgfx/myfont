@@ -39,12 +39,14 @@ small{color:var(--mut)}
 <small>ارفع صورة المرجع (الصحيحة) ثم الصور اللي بدك تتأكد منها. الموقع يقرأ الأسماء والأوقات والقنوات والمعلقين ويقارنها مع المرجع.</small>
 
 <div class="box">
-  <label>مفتاح Anthropic API (يُحفظ في متصفحك فقط)</label>
-  <input type="password" id="key" placeholder="sk-ant-...">
+  <label>مفتاح API (يُحفظ في متصفحك فقط) — مفتاح Gemini مجاني من <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--acc)">aistudio.google.com/apikey</a></label>
+  <input type="password" id="key" placeholder="AIza... أو sk-ant-...">
   <label>الموديل</label>
   <select id="model">
-    <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (أسرع وأرخص)</option>
-    <option value="claude-opus-5-5">Claude Opus 5.5 (أدق)</option>
+    <option value="gemini-2.5-flash">Gemini 2.5 Flash (مجاني)</option>
+    <option value="gemini-2.5-pro">Gemini 2.5 Pro (أدق، مجاني بحدود أقل)</option>
+    <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (مدفوع)</option>
+    <option value="claude-opus-5-5">Claude Opus 5.5 (مدفوع، أدق)</option>
   </select>
 </div>
 
@@ -73,7 +75,7 @@ small{color:var(--mut)}
 <script>
 const $=id=>document.getElementById(id);
 let refFile=null, candFiles=[];
-try{$('key').value=localStorage.getItem('akey')||'';$('model').value=localStorage.getItem('amodel')||'claude-sonnet-5-5'}catch(e){}
+try{$('key').value=localStorage.getItem('akey')||'';$('model').value=localStorage.getItem('amodel')||'gemini-2.5-flash'}catch(e){}
 
 function setupDrop(drop,input,multi,onFiles){
   drop.onclick=()=>input.click();
@@ -98,17 +100,29 @@ const PROMPT=`أنت أداة OCR دقيقة جداً. استخرج كل الب�
 {"date":"التاريخ كما هو مكتوب","sections":[{"title":"عنوان القسم كما هو","matches":[{"home":"الفريق على اليمين","away":"الفريق على اليسار","time":"الوقت كما هو مثل 09:45PM","channel":"القناة مثل beIN SPORTS 1 أو ON أو الرياضية","commentator":"اسم المعلق كما هو","stadium":"الملعب إن وجد وإلا فارغ"}]}]}
 إذا كانت بطاقة لمباراة واحدة ضعها في قسم واحد بعنوان البطولة. اترك أي حقل غير موجود فارغاً "".`;
 
+function parseJSON(t){return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1))}
 async function extract(file){
-  const data=await toB64(file);
+  const data=await toB64(file),model=$('model').value,key=$('key').value.trim();
+  if(model.startsWith('gemini')){
+    for(let tries=0;;tries++){
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{
+        method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:'image/jpeg',data}},{text:PROMPT}]}],
+          generationConfig:{temperature:0,responseMimeType:'application/json'}})});
+      const j=await r.json();
+      if(r.status===429&&tries<4){await new Promise(z=>setTimeout(z,15000));continue} // حد الطلبات المجاني
+      if(!r.ok) throw new Error(j.error?.message||r.status);
+      return parseJSON(j.candidates[0].content.parts.map(p=>p.text||'').join(''));
+    }
+  }
   const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{
-    'content-type':'application/json','x-api-key':$('key').value.trim(),
+    'content-type':'application/json','x-api-key':key,
     'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:$('model').value,max_tokens:4000,messages:[{role:'user',content:[
+    body:JSON.stringify({model,max_tokens:4000,messages:[{role:'user',content:[
       {type:'image',source:{type:'base64',media_type:'image/jpeg',data}},{type:'text',text:PROMPT}]}]})});
   const j=await r.json();
   if(!r.ok) throw new Error(j.error?.message||r.status);
-  const t=j.content.map(c=>c.text||'').join('');
-  return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1));
+  return parseJSON(j.content.map(c=>c.text||'').join(''));
 }
 
 // توحيد الكتابة: الأشكال المختلفة لنفس الحرف ما تعتبر خطأ
@@ -176,12 +190,14 @@ $('go').onclick=async()=>{
     $('status').textContent='جاري قراءة صورة المرجع...';
     const ref=await extract(refFile);
     let done=0;$('status').textContent=`جاري فحص ${candFiles.length} صور...`;
-    await Promise.all(candFiles.map(async f=>{
+    const one=async f=>{
       let errs;
       try{errs=compare(ref,await extract(f))}catch(e){errs=['خطأ في القراءة: '+e.message]}
       (errs.length?$('badList'):$('okList')).appendChild(card(f,errs));
       $('status').textContent=`تم فحص ${++done} من ${candFiles.length}`;
-    }));
+    };
+    if($('model').value.startsWith('gemini')){for(const f of candFiles)await one(f)}
+    else await Promise.all(candFiles.map(one));
     $('status').textContent='✔ انتهى الفحص';
   }catch(e){$('status').textContent='خطأ: '+e.message}
   $('go').disabled=false;
