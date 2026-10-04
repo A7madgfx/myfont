@@ -135,6 +135,8 @@ function norm(s){return String(s||'')
   .replace(/[\s\-–:|_.]+/g,' ').trim().toLowerCase()}
 function normTime(s){const m=String(s||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).match(/(\d{1,2})\s*[:.]\s*(\d{2})/);return m?(+m[1])+':'+m[2]:norm(s)}
 function normChan(s){const n=norm(s).replace(/bein|sports|بي ان|سبورت|سبورتس|\s/g,'');return n}
+// نفس القناة حتى لو انقرأ رقمها مرة وما انقرأ مرة (مثل الرياضية / الرياضية 3)
+function sameChan(a,b){a=normChan(a);b=normChan(b);if(a===b)return true;const t=x=>x.replace(/\d/g,''),da=a.replace(/\D/g,''),db=b.replace(/\D/g,'');return t(a)===t(b)&&(!da||!db)}
 function normDate(s){return norm(s).replace(/\s/g,'')}
 
 function compare(ref,cand){
@@ -158,7 +160,7 @@ function compare(ref,cand){
     if(norm(cm.home)!==norm(rh))e.push(`اسم الفريق: <b>${cm.home}</b> والصحيح <span class="good">${rh}</span>`);
     if(norm(cm.away)!==norm(ra))e.push(`اسم الفريق: <b>${cm.away}</b> والصحيح <span class="good">${ra}</span>`);
     if(cm.time&&normTime(cm.time)!==normTime(rm.time))e.push(`الوقت: <b>${cm.time}</b> والصحيح <span class="good">${rm.time}</span>`);
-    if(cm.channel&&rm.channel&&normChan(cm.channel)!==normChan(rm.channel))e.push(`القناة: <b>${cm.channel}</b> والصحيحة <span class="good">${rm.channel}</span>`);
+    if(cm.channel&&rm.channel&&!sameChan(cm.channel,rm.channel))e.push(`القناة: <b>${cm.channel}</b> والصحيحة <span class="good">${rm.channel}</span>`);
     if(cm.commentator&&norm(cm.commentator)!==norm(rm.commentator))e.push(`المعلق: <b>${cm.commentator}</b> والصحيح <span class="good">${rm.commentator}</span>`);
     if(!cm.commentator&&rm.commentator)e.push(`اسم المعلق ناقص (الصحيح <span class="good">${rm.commentator}</span>)`);
     if(rm.section&&cm.section&&candMatches.length>1&&norm(cm.section)!==norm(rm.section))
